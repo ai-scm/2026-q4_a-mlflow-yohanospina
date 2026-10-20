@@ -1,128 +1,73 @@
-# mlflow-tutorial
+# Despliegue de Modelos de Machine Learning con MLflow y Docker
 
-![img](assets/cartoon-serve-api.png)
+Este repositorio contiene la arquitectura para la gestión del ciclo de vida y despliegue en producción de modelos predictivos. La solución permite registrar, versionar y poner a disposición un modelo de aprendizaje automático como un servicio en tiempo real.
 
-I walk through this tutorial and others here on GitHub and on my [Medium blog](https://maria-patterson.medium.com/).  Here is a friend link for open access to the article on Towards Data Science: [*Machine learning model serving for newbies with MLflow*](https://towardsdatascience.com/machine-learning-model-serving-for-newbies-with-mlflow-76f9f0ac3cb2?sk=3fabd570be956c5830591f9ac0fa7991).  I'll always add friend links on my GitHub tutorials for free Medium access if you don't have a paid Medium membership [(referral link)](https://maria-patterson.medium.com/membership).  
+## Arquitectura General
 
-*[edit 2024 Sep: I've updated this GitHub repo significantly since publishing my Towards Data Science article in order to upgrade to mlflow 2.16.2 The scripts have been updated, but the Jupyter notebook is now removed as legacy.]*
+El flujo de trabajo abarca tres etapas principales:
 
-If you find any of this useful, I always appreciate contributions to my Saturday morning [fancy coffee fund](https://github.com/sponsors/mtpatter)!
+1. Registro y Gobierno: Almacenamiento centralizado del modelo y sus métricas de calidad.
+2. Contenedorización: Empaquetado del servicio mediante contenedores para garantizar portabilidad.
+3. Consumo en Tiempo Real: Exposición de un punto de enlace de inferencia para recibir datos y responder solicitudes automáticamente.
 
-This GitHub repo walks through an example of training a classifier model
-with sklearn and serving the model with mlflow.
-The first section saves the mlflow model locally to disk, and the second
-section shows how to use the mlflow registry for model tracking and versioning.
+## Requisitos Previos
 
-## TLDR
+- Docker y Docker Compose
+- Python 3.10 o superior
 
-To skip through and run all components with Docker Compose you can run
-this whole tutorial with the registry:
+## Despliegue Rápido
 
-```
+Para iniciar la plataforma completa (servidor de gobierno y servicio de inferencia):
+
+```bash
 docker compose -f docker-compose.yml up --build
 ```
 
-You can access the mlflow registry UI on your localhost at port 8000.
+El panel de administración estará disponible en: `http://localhost:8000`
 
-Or to run the tutorial without the registry:
+## Ejecución Manual
 
-```
-docker compose -f docker-compose-no-registry.yml up --build
-```
+### 1. Iniciar el Servidor de Registro y Gobierno (MLflow)
 
-with the model served on port 1234.
-
-In either case, you can then make predictions as described in the relevant section below.
-
-To run only mlflow with Docker (without using my sklearn classifier example), port forwarding to localhost:8000,
-you can use a compose file with the command below:
-
-```
-docker compose -f compose-server.yml up --build
-```
-
-## Serving models with mlflow (no registry)
-
-### Train a model
-
-The `clf-train.py` script uses the sklearn breast cancer dataset, trains a
-simple random forest classifier, and saves the model to local disk with mlflow.
-Adding the optional flag for writing output test data will split
-the training data first to add an example test data file.
-
-```
-python clf-train.py clf-model --outputTestData test.csv
-```
-
-### Serve model to port 1234
-
-Serve your trained `clf-model` to port 1234.
-
-```
-mlflow models serve -m clf-model -p 1234 -h 0.0.0.0 --env-manager local
-```
-
-## Serving models with mlflow (with registry)
-
-### Start an mlflow server for UI on port 8000
-
-This uses a sqlite database backend and stores model artifacts
-at the local specified location.
-
-```
+```bash
 mlflow server \
---backend-store-uri sqlite:///mlflow.db \
---default-artifact-root ./mlflow-artifact-root \
---host 0.0.0.0 \
---port 8000
+  --backend-store-uri sqlite:///mlflow.db \
+  --default-artifact-root ./mlflow-artifact-root \
+  --host 0.0.0.0 \
+  --port 8000
 ```
 
-### Train a model
+### 2. Entrenar y Registrar el Modelo
 
-The `clf-train-registry.py` script uses the sklearn breast cancer dataset, trains a
-simple random forest classifier, overwrites the model predict method to return
-probabilities instead of classes, and saves and registers the model with mlflow.
-The newest model is moved to the mlflow `Staging` alias.
-Adding the optional flag for writing output test data will split
-the training data first to add an example test data file.
-
-```
+```bash
 python clf-train-registry.py clf-model "http://localhost:8000" --outputTestData test.csv
 ```
 
-The model is now logged in the mlflow registry and visible in the UI under "my-experiment".
+### 3. Publicar el Servicio de Inferencia
 
-### Serve model to port 1234
-
-Serve your latest `Staging` version of the trained `clf-model` to port 1234.
-
-```
+```bash
 export MLFLOW_TRACKING_URI=http://localhost:8000
 mlflow models serve -m models:/clf-model@Staging -p 1234 -h 0.0.0.0 --env-manager local
 ```
 
-## Make predictions
+## Pruebas de Consumo (Inferencia)
 
-For inference data in a file called `test.csv`, run the following:
+Para enviar datos de prueba y recibir predicciones en tiempo real:
 
-```
-curl http://localhost:1234/invocations  -H 'Content-Type: text/csv' --data-binary @test.csv
-```
-
-or just run the script below:
-
-```
+```bash
 ./predict.sh test.csv
 ```
 
-This returns an array of predicted probabilities.
+O mediante solicitud HTTP directa:
 
-## Cleaning up
-
-If you're using Compose, when finished, shut down all containers with the following command:
-
+```bash
+curl http://localhost:1234/invocations -H 'Content-Type: text/csv' --data-binary @test.csv
 ```
+
+## Detención del Servicio
+
+Para detener todos los servicios y liberar recursos:
+
+```bash
 docker compose down
 ```
-
-Note well that the compose files mount volumes and write to the local directory.
